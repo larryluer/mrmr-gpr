@@ -19,10 +19,10 @@ One critics of mRMR is the rejection of non-linear correlations. In a material s
 
 Our implementation of GPR not only builds a predictive model for the surrogate and its uncertainty for a single prediction, but it also reports the uncertainty of the trend itself. This allows hypothesis testing such as "is positively correlated" or "has maximum". It is accomplished by a bootstrap method.
 
-For details, see the manuscript by Marina Guenthert et al. 2025
+For details, see the manuscript by Marina Günthert et al. 2025
 
 The authors:
-- Larry Lüer, Marina Guenthert
+- Larry Lüer, Marina Günthert
 - Institute of Materials for Electronics and Energy technology
 - Friedrich-Alexander Universität Erlangen-Nürnberg
 - November 2025
