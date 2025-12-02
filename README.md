@@ -2,7 +2,7 @@
 
 A simple workflow to build predictive models from small datasets (dozens to a few thousand) with many predictors (up to thousands), most of which being irrelevant for the prediction, therefore requiring feature selection.
 
-it combines upstream mRMR - minimum Redundancy Maximum Relevance feature selection and Gaussian Process Regression
+It combines upstream mRMR - minimum Redundancy Maximum Relevance feature selection and Gaussian Process Regression.
 
 It uses the mrmr-selection, scikit-learn and scitkit-optimize packages - please cite the authors of these
 packages when using the code for manuscripts!
