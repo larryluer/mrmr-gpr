@@ -21,6 +21,11 @@ Our implementation of GPR not only builds a predictive model for the surrogate a
 
 For details, see the manuscript by Marina Günthert et al. 2025
 
+INSTRUCTIONS:
+- after installation, open the jupyter notebook "mrmr_from_xlsx.ipynb"
+- data is loaded from "df11_test.xlsx"
+- after running the script multiple output figures are created
+
 The authors:
 - Larry Lüer, Marina Günthert
 - Institute of Materials for Electronics and Energy technology
