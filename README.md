@@ -15,7 +15,7 @@ Original publication:
 
 A simple workflow to build predictive models from small datasets (dozens to a few thousand) with many predictors (up to thousands), most of which being irrelevant for the prediction, therefore requiring feature selection.
 
-it combines upstream mRMR - minimum Redundancy Maximum Relevance feature selection and Gaussian Process Regression
+It combines upstream mRMR - minimum Redundancy Maximum Relevance feature selection and Gaussian Process Regression.
 
 It uses the mrmr-selection, scikit-learn and scitkit-optimize packages - please cite the authors of these
 packages when using the code for manuscripts!
@@ -32,10 +32,15 @@ One critics of mRMR is the rejection of non-linear correlations. In a material s
 
 Our implementation of GPR not only builds a predictive model for the surrogate and its uncertainty for a single prediction, but it also reports the uncertainty of the trend itself. This allows hypothesis testing such as "is positively correlated" or "has maximum". It is accomplished by a bootstrap method.
 
-For details, see the manuscript by Marina Guenthert et al. 2025
+For details, see the manuscript by Marina Günthert et al. 2025
+
+INSTRUCTIONS:
+- after installation, open the jupyter notebook "mrmr_from_xlsx.ipynb"
+- data is loaded from "df11_test.xlsx"
+- after running the script multiple output figures are created
 
 The authors:
-- Larry Lüer, Marina Guenthert, Qizhen Song
+- Larry Lüer, Marina Günthert, Qizhen Song
 - Institute of Materials for Electronics and Energy technology
 - Friedrich-Alexander Universität Erlangen-Nürnberg
 - November 2025
