@@ -1,5 +1,18 @@
 # mrmr_gpr
 
+Update June 2026
+
+Added a greedy additive feature selection step which can be run after mrmr. It can handle more than one target and will display their common predictors in a knowledge graph style. However, we highlight that this is not a MultiTask Gaussian Process; it is a set of Single Task Gaussian Processes.
+
+The speciality of the workflow is to handle datasets having many more features (columns) than rows. This happens for example, if molecular structure is expressed as "mordred" features (a fixed set of avout 1800 Cheminformatics features). In this case, strong redundancy will always be present - many of these features describe strongly related cheminformatics properties. Therfore, we provide here a careful two-step redundancy rejection: first, mRMR is performed to retain the features with highest relevance and lowest redundancy. We typically retain an excess of features, because mRMR can only handle linear correlations. The retained features are then added one by one in a greedy process, only if they bring additional explanation of variance. This two-step procedure should guarantee that the final list of single task GP's contains only relevant features, while still allowing controllable nonlinearity.
+
+A new dataset is included together with two Notebooks:
+mrmr_greedy_gpr.ipynb: demonstrates the workflow and the visualization. For details on the data, see the manuscript by Tian Du et alk., 2026
+XSpaceGroupGPR_split_summary.ipynb: A notebook to perform an X space group shuffle split, in cases where groups of features have a clustering tendency but a normal group shuffle split may be not available because the predctore are characterization features, not process conditions.
+
+
+Original publication:
+
 A simple workflow to build predictive models from small datasets (dozens to a few thousand) with many predictors (up to thousands), most of which being irrelevant for the prediction, therefore requiring feature selection.
 
 it combines upstream mRMR - minimum Redundancy Maximum Relevance feature selection and Gaussian Process Regression
@@ -22,7 +35,7 @@ Our implementation of GPR not only builds a predictive model for the surrogate a
 For details, see the manuscript by Marina Guenthert et al. 2025
 
 The authors:
-- Larry Lüer, Marina Guenthert
+- Larry Lüer, Marina Guenthert, Qizhen Song
 - Institute of Materials for Electronics and Energy technology
 - Friedrich-Alexander Universität Erlangen-Nürnberg
 - November 2025

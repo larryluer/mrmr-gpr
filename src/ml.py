@@ -1,16 +1,12 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 def warn(*args, **kwargs):
     pass
 import warnings
 warnings.warn = warn
-
-#from imeet import *
-#from imeet.db.dbconnect import *
-#from imeet.db.models import *
-#from imeet.core.funcs import *
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -35,20 +31,14 @@ from matplotlib.transforms import Bbox
 from matplotlib import cm
 from matplotlib.ticker import LinearLocator, FormatStrFormatter
 
-#import networkx as nx
+import networkx as nx
 #import pygraphviz as pgv
 
 import json,ast,time
 
 
-# SWITCH THIS OFF FOR OLD JUPUTERHUB
-#from rdkit import Chem
-#from mordred import Calculator, descriptors
 from mrmr import mrmr_classif, mrmr_regression
 from copy import deepcopy
-
-#import warnings
-#warnings.filterwarnings("ignore")
 
 
 class Mrmr_gpr():
@@ -137,10 +127,121 @@ class Mrmr_gpr():
 
         self.yall = y
         if missing!=None:
-            X,y = self.handle_missing(X,y,missing)
+            X,y = self.handle_missing_legacy(X,y,missing)
         return features, X, y
 
-    def handle_missing(self,X,y,exclude):
+
+    def handle_missing(self, df, predictors, targets, predictors_whitelist, predictors_blacklist,
+                        targets_whitelist, targets_blacklist, missing, handle_missing,min_var):
+
+        """for any algorithm that needs a complete X,y matrix without missing numbers
+
+        There is also a more efficient function handle_missing_pairs
+
+        Args:
+            df (Pandas DataFrame): All datasets in rows, predictors & targets in columns
+            predictors (list of string): each entry must correspond to an entry in df.columns. Can be empty.
+                                        In this case, df.columns  is assumed
+            targets (list of string): each entry must correspond to an entry in df.columns. If empty:
+                                        targets = predictors (symmetic matrix, use to see if predictors are iid)
+            predictors_whitelist (list of string): strings that must occur in predictor to be included
+            predictors_blacklist (list of string): strings that must not occur in predictor to be included
+            missing (scalar): a number that should be interpreted as missing
+            handle_missing (string): None: do not handle; 'keep_predictors': remove datasets with missing values,
+                                        'keep_datasets': remove predictors with missing datasets
+                                        default: None
+            min_var (integer): minimum number of different entries for column to be included. Default
+        """
+
+        #before doing anything else: remove columns with too little variation
+        Xy = df.to_numpy()
+        nvars = np.zeros((Xy.shape[1],)) # number of different entries
+        rdyn = np.zeros((Xy.shape[1],)) # relative dynamics
+        for ii in range(Xy.shape[1]):
+            rrr=Xy[:,ii]
+            try:
+                if (len(rrr) > 1) & (np.mean(rrr)!=0):
+                    dyn = np.max(rrr)-np.min(rrr)
+                    rdyn[ii] = dyn / np.mean(rrr)
+                else:
+                    rdyn[ii]=0
+                nvars[ii] = len(set(list(rrr)))
+            
+            except TypeError:
+                nvars[ii] = 0
+        
+        #print('variability of data per columns:')  # !!!! RRREMOVE !!!!!
+        
+        colgood = df.columns[np.logical_not(nvars < min_var)]
+        nvars_good = nvars[np.logical_not(nvars < min_var)]
+        
+        
+        #for cg, ng in zip(colgood,nvars_good): # !!!! RRREMOVE !!!!!
+        #    print(cg, ng)
+
+        if len(predictors)==0:
+            features = colgood
+        else:
+            features = [pp for pp in predictors if pp in colgood]
+                
+        if predictors_whitelist: 
+            features0 = [ff for ff in features if any([white in ff for white in predictors_whitelist])] # whitelist potentially interesting predictors
+            features = features0
+
+        for exclude0 in predictors_blacklist:
+            features0 = [ff for ff in features if (exclude0 not in ff)]
+            features = features0
+
+        if (len(targets)==0) & (len(targets_whitelist)==0) & (len(targets_blacklist)==0):
+            targets = features
+        else:
+            targets = [pp for pp in targets if pp in colgood] # WAS: colgood which was BUG!! repaired!
+                    
+            if targets_whitelist: 
+                targets0 = [ff for ff in targets if any([white in ff for white in targets_whitelist])] # whitelist potentially interesting predictors
+                targets = targets0
+
+            for exclude0 in targets_blacklist:
+                targets0 = [ff for ff in targets if (exclude0 not in ff)]
+                targets = targets0            
+        
+        tf = np.array(list(set(list(targets)+list(features)))) # NEW!!!!! added the second "list"
+        Xy = df[tf].to_numpy() # array containing predictors and targets
+
+        if handle_missing == 'keep_predictors':
+            bad = Xy==missing # a boolean array
+            realbad = np.sum(bad,axis = 1) # datasets containing at least one missing value evaluate to True
+            Xygood = Xy[np.logical_not(realbad),:]# removing all datasets with missing values
+            colgood = tf
+
+        elif handle_missing == 'keep_datasets':
+            bad = Xy==missing # a boolean array
+            realbad = np.sum(bad,axis = 0) # columns containing at least one missing value evaluate to True
+            colgood = tf[np.logical_not(realbad)] # the remaining column names
+            Xygood = Xy[:,np.logical_not(realbad)]# removing all datasets with missing values
+
+        elif handle_missing == None:
+            Xygood = Xy
+            colgood = tf
+        
+        df1 = pd.DataFrame(Xygood,columns=colgood) # df1 contains only selected predictors & targets & no missing values
+
+        pred_out = [ff for ff in features if ff in colgood]
+        targ_out = [ff for ff in targets if ff in colgood]
+
+        return df1, pred_out, targ_out
+
+    def handle_missing_pairwise(self,Xy, missing = -1):
+        # X and y: numpy arrays
+        bad = Xy==missing # a boolean array
+        realbad = np.sum(bad,axis = 1) # datasets containing at least one missing value evaluate to True
+        Xygood = Xy[np.logical_not(realbad),:]# removing all datasets with missing values
+        return Xygood[:,0],Xygood[:,1]
+
+
+
+
+    def handle_missing_legacy(self,X,y,exclude):
         # convention: missing converted to NaN
         #X = self.X 
         #y = self.y
@@ -275,7 +376,7 @@ class Mrmr_gpr():
         if exclude!='none': # NEW !!!!! For matrix completion. Assume exclude==unknown
             #print('shape before exclude',X.shape) # Should work also if many columns are incomplete
             leny = len(y)
-            X,y = self.handle_missing(X,y,exclude)
+            X,y = self.handle_missing_legacy(X,y,exclude)
             rel_overlap = len(y)/leny
             grow = 1e32 # !!!!!!!!!!!!!!!!!!!! Don't know what this is good for so I set it to very high value!!!!!!
             
@@ -1259,4 +1360,581 @@ class Mrmr_gpr():
 
             #ax2.set_title(gp.kernel_)
             plt.show()
+
+
+    def fit_gpr_autoselect(self, improvement_fact = 0.95, method='split', n_shuffle = 10, select_method = 'FOM', weight_r2 = 1,
+                                    verbose = False, standardize = True, normalize_y=False, test_size = 0.3, cvnum = 5,
+                                    exclude = 'None',min_var=1,max_pred=5,min_rel_overlap = 0,min_grow = 1,
+                                    min_pts=10, publishable_names = False, graph = None,
+                                    required = []):
+        
+        self.Jacs = [] # !!!!!!!!!!!!!!!!! TEST !!!!!!!!!!!!!!!!!!!!!!! 
+
+        # find the best predictors automatically, using improvement of RMSE as indicator
+        # a new predictor should improve RMSE substantially, otherwise it will just cause noise
+        bestvalue = 1e33 # starting value
+        ic0 = [] # list of best new predictors
+        mRMSE = [] # list of mean rmse's (just accumulating)
+        
+        accs = []
+        ics = [] # list of corresponding predictor names
+
+        FOMs = []
+        R2ss = [] # total explanation of variance
+        dR2s = [] # additional explanation of variance
+        dR2s_s = [] # and its variance
+        preds = [] # list of predictor names
+        count = 0
+
+        uy = np.std(self.y) # the baseline std of y data
+        rmse_prev = np.std(self.y) # the previously best rmse (initialized to baseline rmse)
+        R2prev = 0 # the previously achieved explanation of variance
+
+        for req in required: # add the required predictors to start with
+            ic0.append(self.predictor_names.index(req))
+        
+        predn = self.predictor_names
+        targn = self.target_name
+
+
+        
+        gax = graph
+        #gax = pgv.AGraph(strict=False, directed=True) # same, using pygraphviz
+        gax.add_node(self.target_name,rmse = uy,label=targn) # add target and baseline uncertainty
+        
+        
+        for _ in range(len(self.predictor_names)):    
+
+            ccc = [ii for ii,pn in enumerate(self.predictor_names) if ii not in ic0]
+            for c in ccc:
+                ic = ic0+[c]
+
+                RMSE_train, RMSE_test, acc, R2 = self.fit_gpr2(select_predictors = ic,standardize=standardize,
+                                normalize_y = normalize_y, verbose=verbose, method = method,
+                                n_shuffle=n_shuffle, test_size = test_size, cvnum=cvnum,exclude=exclude,
+                                min_var=min_var,min_rel_overlap=min_rel_overlap,min_grow=min_grow,min_pts=min_pts)
+
+                if self.Jacs[-1]['mark_bad']:
+                    RMSE_test=9999
+                    RMSE_train=9999
+                    acc = -9999
+                    RMSEs = np.array([9999])
+                else:
+                    # get all well performing RMSE_train from the latest run: in self.Jacs[-1]
+                    RMSEs = self.Jacs[-1]['RMSE_train']                    
+
+
+                accs.append(acc)
+                ics.append(ic)
+                preds.append(list(np.array(predn)[ic]))
+
+
+
+                R2s = 1-(RMSEs**2)/(uy**2)
+                R2s_m = np.mean(R2s)
+                R2ss.append(R2s_m)
+                dR2 = R2s - R2prev
+                dR2_m = np.mean(dR2)
+                dR2_s = np.std(dR2)
+                dR2s.append(dR2_m)
+                dR2s_s.append(dR2_s)
+
+                if select_method=='RMSE':
+                    FOM = RMSE_train
+                elif select_method=='FOM':
+                    FOM = RMSE_test * (1-acc)
+                elif select_method=='dR2':
+                    FOM = 1-R2s_m # must be minimal!
+                elif select_method=='weighted':
+                    FOM = RMSE_test * (1/weight_r2-acc)
+                mRMSE.append(RMSE_test)
+                FOMs.append(FOM)
+
+                count+=1
+                if acc!=-9999:
+                    print('GPR fit for :', np.array(self.predictor_names)[ic],
+                         'RMSEtr/tst = %0.4f,  %0.4f, cvscore(R2) = %0.4f, R2 = %0.4f, dR2= %0.4f ' %(RMSE_train,RMSE_test,acc,R2s_m,dR2_m))
+                
+            
+            ibest0 = np.argmin(FOMs) # WAS: mRMSE
+
+            if select_method == 'dR2':
+                crit = bestvalue - improvement_fact
+            else:
+                crit = bestvalue * improvement_fact
+            
+            if (FOMs[ibest0] < (crit)) and (len(ic0) < (max_pred-1)):
+                bestvalue = FOMs[ibest0]
+                ibest = ibest0
+                #print('#jacs',len(self.Jacs),'ibest',ibest)
+                
+                best_new_pred = self.Jacs[ibest]['p_names'][-1]
+                RMSEs_best = self.Jacs[ibest]['RMSE_train']
+                print('Best new predictor:',best_new_pred, ',std(y)= %0.4f, RMSE = %0.4f, score(R2) = %0.4f' % (uy,mRMSE[ibest],accs[ibest]))
+
+                prednr = best_new_pred
+                gax.add_node(best_new_pred,rmse = mRMSE[ibest],label=prednr)
+
+                #gax.add_edge(best_new_pred, self.target_name, weight = rmse_prev-gax.nodes[best_new_pred]['rmse']) # old version: weight is improvement of RMSE
+                gax.add_edge(best_new_pred, self.target_name, weight = float(f'{dR2s[ibest]:.2f}')) # new version: differential explanation of variance
+                #rmse_prev = gax.nodes[prednr]['rmse']
+
+            elif (FOMs[ibest0] < (crit)) and (len(ic0) == (max_pred-1)):
+                bestvalue = FOMs[ibest0]
+                ibest = ibest0
+                #print('#jacs',len(self.Jacs),'ibest',ibest)
+                
+                best_new_pred = self.Jacs[ibest]['p_names'][-1]
+                RMSEs_best = self.Jacs[ibest]['RMSE_train']
+                print('Best new predictor:',best_new_pred, ',std(y)= %0.4f, RMSE = %0.4f, score(R2) = %0.4f' % (uy,mRMSE[ibest],accs[ibest]))
+                print('Maximum number of predictors reached.')
+
+
+                
+                prednr = best_new_pred
+                #weight = float(f'{dR2s[ibest]:.2f}')
+                
+                gax.add_node(best_new_pred,rmse = mRMSE[ibest],label=prednr)
+
+                gax.add_edge(best_new_pred, self.target_name, weight = float(f'{dR2s[ibest]:.2f}'))
+                #rmse_prev = gax.nodes[prednr]['rmse']     
+                break           
+
+            else:
+                print('Adding further predictors does not improve the RMSE.')
+                print('Best predictors:',self.Jacs[ibest]['p_names'],', std(y)= %0.4f, RMSE = %0.4f, score(R2) = %0.4f' % (uy,mRMSE[ibest],accs[ibest]))
+
+                break
+            #R2prev = 1-(rmse_prev**2)/(uy**2) # BUG!!! This is doing the mean BEFORE the division; mean should come after!
+            R2sprev = 1-(RMSEs_best**2)/(uy**2)
+            R2prev = np.mean(R2sprev)
+            ic0.append(self.predictor_names.index(best_new_pred))
+
+        explanations = {'baseline':uy,'ics':ics,'predictors':preds,'mRMSE':mRMSE, 'dR2s':dR2s, 'dR2s_s':dR2s_s, 'icbest':ics[ibest]}
+
+        gax.nodes[self.target_name]['R2']=R2ss[ibest] # add R2 to node to store the predictive power of the predictive model
+        return {'best_pred':self.Jacs[ibest]['p_names'], 'RMSE': mRMSE[ibest],'R2': accs[ibest],'graph':gax,'explanations':explanations}
+        
+        #self.plot_jacs_2d([0])
+        
+        '''
+        self.plot_jacs_1d(deriv=1,n_jacs=ibest) # plot first derivatives of obj funcs
+        self.plot_jacs_1d(deriv=0,n_jacs=ibest) # plot obj func values at position of data points 
+        self.plot_result_plot(n_jacs=ibest) # plot predicted against ground truth for each data point
+        self.plot_pred_rmse(mRMSE,ics,ic0) # plot contribution of each predictor to RMSE
+        '''
+    
+    
+
+    def _h_mrmr(self,df, targets, excludes, whitelist=[], max_pred_mrmr = 5, max_pred_gpr = 3, improvement_fact = 0.05,
+                graph = None, use_gpr = True, regressor_params={}, proxy_params = {}, whitelist_exact_match = False,
+                required = []):
+        # core function for the h_mrmr_gpr workflow
+
+        print('h_mrmr for targets:',targets)
+        missing = proxy_params['missing']
+        best_preds = self.mrmr(df, targets, excludes, whitelist, max_pred = max_pred_mrmr,
+                               missing=None,whitelist_exact_match=whitelist_exact_match)
+        print(best_preds)
+
+        if use_gpr:
+            length_scale_lims = regressor_params['length_scale_lims']
+            length_scales_start = regressor_params['length_scales_start']
+
+            select_method = proxy_params['select_method'] if 'select_method' in proxy_params.keys() else 'dR2'
+            min_rel_overlap = proxy_params['min_rel_overlap'] if 'min_rel_overlap' in proxy_params.keys() else 0.6
+            n_shuffle = proxy_params['n_shuffle'] if 'n_shuffle' in proxy_params.keys() else 20
+            normalize_y = proxy_params['normalize_y'] if 'normalize_y' in proxy_params.keys() else True
+            method = proxy_params['method'] if 'method' in proxy_params.keys() else 'split'
+            test_size = proxy_params['test_size'] if 'test_size' in proxy_params.keys() else 0.25
+            cvnum = proxy_params['cvnum'] if 'cvnum' in proxy_params.keys() else 3
+
+            excludes = [[] for _ in range(len(targets))]
+            print('refining upstream mRMR by embedded mRMR-GPR')
+            print('targets:',targets)
+            best_preds, rs = self.find_proxy(df,targets,excludes=excludes, whitelists = best_preds, length_scales_start = length_scales_start,
+                                            length_scale_lims = length_scale_lims, min_var = 2, max_pred = max_pred_gpr, missing = missing,
+                                            min_rel_overlap = min_rel_overlap, min_grow=0,min_pts=2,select_method = select_method, graph=graph,
+                                            n_shuffle = n_shuffle, improvement_fact = improvement_fact, method = method, test_size = test_size, cvnum = cvnum,
+                                            required = required, normalize_y = normalize_y, whitelist_exact_match = True)
+            
+        else: # rely on plain mrmr and build the graph from that
+
+            if graph==None:
+                graph = nx.DiGraph() # a directed graph instance for the additional explanations (using networkx)
+            for target,bpr in zip(targets,best_preds):
+                if use_gpr:
+                    bprx = bpr # GPR: use all predictors
+                else:
+                    bprx = bpr[:2] # upstream mrmr: use only the strongest 2
+                graph.add_node(target,label=target)
+                for best_pred in bprx:
+                    graph.add_node(best_pred,label=best_pred)
+                    graph.add_edge(best_pred, target, weight = 1)
+
+            rs = []
+            rs.append({'graph':graph})
+
+
+        #features = list(best_preds[0])
+        if graph==None:
+            graph = rs[-1]['graph']
+            
+        for target,bpr in zip(targets,best_preds):
+
+            if use_gpr:
+                bprx = bpr # GPR: use all predictors
+            else:
+                bprx = bpr[:2] # upstream mrmr: use only the strongest 2
+
+            r = self.fit(df,bprx,target,exclude=missing,min_var=1,min_rel_overlap=0,min_grow=0,min_pts=10, n_shuffle=n_shuffle,verbose=False,
+                        length_scales_start=length_scales_start, length_scale_lims=length_scale_lims,normalize_y=normalize_y)
+
+            dpar,dpar_s = self.get_feature_importance(n_jacs=-1, p_names=bprx)
+            print('Feature importance:',bprx,dpar)
+
+            # set the edge weights according to dpar
+
+            print('setting edges to feature importance data:', bprx)
+            for ii,best_pred in enumerate(bprx):
+                de = graph.get_edge_data(best_pred,target)
+                de['feature_importance'] =  float(f'{dpar[ii]:.4f}')
+                de['weight'] = float(f'{dpar[ii]:.4f}')
+
+        return best_preds, rs
+
+
+    def h_mrmr(self, df, targets, excludes, whitelist_S=[], whitelist_P=[], 
+                max_pred_mrmr = 5, max_pred_gpr = 3, n_add_layers = 0, improvement_fact = 0.05,
+                method = 'split', test_size = 0.25, cvnum = 3,
+                add_P = True, graph = None, use_gpr = True, regressor_params = {},
+                proxy_params = {}, whitelist_exact_match = False, required = []):
+        
+        # hierarchical mrmr
+        # build a knowledge graph where each node is the target of a predictive model
+        # and the in-edges are the predictors
+
+        excludes = [excludes[0] for _ in targets]
+
+        best_preds, rs = self._h_mrmr(df, targets, excludes, whitelist_S, max_pred_mrmr = max_pred_mrmr, improvement_fact=improvement_fact,
+                                      max_pred_gpr = max_pred_gpr, graph=None, use_gpr = use_gpr, regressor_params = regressor_params,
+                                      proxy_params = proxy_params, whitelist_exact_match = whitelist_exact_match, required = required)
+        gax = rs[-1]['graph']
+
+        # Now I want to do mrmr with the nodes with no incoming edges
+        for ii in range(n_add_layers):
+            gax = rs[-1]['graph']
+            lefts = [node for node, in_degree in gax.in_degree() if in_degree == 0] # no incoming edges - these are the new targets
+            exx = excludes[0]+[n for n in gax.nodes]
+            excludes = [list(set(exx)) for _ in lefts]# do not re-use nodes (acyclic directed graph)
+            best_preds, rs = self._h_mrmr(df, lefts, excludes, whitelist_S, max_pred_mrmr = max_pred_mrmr,improvement_fact=improvement_fact,
+                                          max_pred_gpr=max_pred_gpr,graph=gax,use_gpr=use_gpr, regressor_params = regressor_params,
+                                          proxy_params = proxy_params, whitelist_exact_match = whitelist_exact_match, required = required)
+
+            gax = rs[-1]['graph']
+
+        if add_P:   
+            gax = rs[-1]['graph']
+            lefts = [node for node, in_degree in gax.in_degree() if in_degree == 0] # no incoming edges - these are the new targets
+            exx = excludes[0]+[n for n in gax.nodes]
+            excludes = [list(set(exx)) for _ in lefts]# do not re-use nodes (acyclic directed graph)
+            best_preds, rs = self._h_mrmr(df, lefts, excludes, whitelist_P, max_pred_mrmr = max_pred_mrmr,improvement_fact=improvement_fact,
+                                          max_pred_gpr = max_pred_gpr, graph=gax, use_gpr = use_gpr, regressor_params = regressor_params,
+                                          proxy_params = proxy_params, whitelist_exact_match = whitelist_exact_match, required = required)
+
+            gax = rs[-1]['graph'] 
+        return gax
+    
+    
+    def mrmr(self,df,targets,excludes,whitelist,max_pred=5,missing ='none',whitelist_exact_match=False):
+        out = []
+        for target,exclude in zip(targets,excludes):
+            features,X,y= self.apply_white_blacklist(df,target,targets,whitelist,exclude,missing,whitelist_exact_match=whitelist_exact_match)
+
+            YM = pd.Series(y)
+            df11 = pd.DataFrame(X,columns = features)
+            df11.to_excel('df11_test.xlsx')
+            selected_features = mrmr_regression(X=df11, y=YM, K=max_pred) # mrmr
+            out.append(selected_features)
+        return out
+
+
+    def find_proxy(self,df,targets,excludes,whitelists,length_scales_start,length_scale_lims, normalize_y=False,
+                    min_var=1,max_pred=5,missing ='none',min_rel_overlap=0.5,min_grow=2,min_pts=10,
+                    n_shuffle=10,improvement_fact =0.99,method = 'split', test_size=0.2, cvnum=2, select_method='FOM',weight_r2 = 1,
+                    plot_explanations=True, publishable_names=False,graph=None, required = [],whitelist_exact_match=False):
+        best_preds = []
+        rs = []
+        if len(excludes)!=len(targets):
+            print('Warning! len(excludes)!=len(targets)')
+        if len(whitelists)!=len(targets):
+            print('Warning! len(whitelists)!=len(targets)')
+
+
+        for target,exclude,whitelist in zip(targets,excludes,whitelists):
+            features,X,y = self.apply_white_blacklist(df, target, targets, whitelist, exclude, missing=missing,
+                                                           whitelist_exact_match=whitelist_exact_match)
+
+            
+            self.predictor_names = features 
+            self.target_name = target
+
+            self.length_scales = [length_scales_start for _ in features]
+            self.length_scale_bounds = [length_scale_lims for _ in features]
+
+            #print('total length of features',len(features))
+            #print(features)
+
+            if graph==None:
+                graph = nx.DiGraph() # a directed graph instance for the additional explanations (using networkx)
+
+            r = self.fit_gpr_autoselect(improvement_fact = improvement_fact,n_shuffle=n_shuffle, select_method = select_method,
+                                                verbose=False, standardize=True, normalize_y = normalize_y,method=method, test_size = test_size, cvnum=cvnum,
+                                                exclude = missing,min_var=min_var,max_pred=max_pred,
+                                                min_rel_overlap=min_rel_overlap,min_grow=min_grow,min_pts=min_pts,
+                                                weight_r2=weight_r2,publishable_names = publishable_names,graph=graph,
+                                                required=required)
+            best_preds.append(r['best_pred'])
+            rs.append(r)
+            #rout =deepcopy(r)
+            #rout.pop('explanations')
+            #print(rout)
+
+            graphlist = [[v for k,v in r.items() if k not in ['graph','explanations']]]
+            out_cols = ['predictors', 'RMSE_train', 'acc']
+            print(graphlist)
+            
+            target_out = target.split(' ')[0]
+            gj = nx.node_link_data(r['graph']) # convert graph to a dict that can be json serialized
+            with open('graph_' + target_out + '.json', 'w') as fp:
+                json.dump(gj, fp)
+            
+
+            plt.figure() # !!!!NEW !!!!!!!!!!!!!!
+            
+            self.graph_draw_mpl(r['graph'])# this is a pygraphviz graph!!
+
+            expl = r['explanations']
+            expl_out = [[ip,p,r,dr2,dr2_s] for ip,p,r,dr2,dr2_s in zip(expl['ics'],expl['predictors'],expl['mRMSE'],expl['dR2s'],expl['dR2s_s'])]
+            
+            
+            with pd.ExcelWriter('graph_list_' + target_out + '.xlsx', mode='w') as writer:
+                dfx = pd.DataFrame(graphlist,columns=out_cols)
+                dfx.to_excel(writer, sheet_name = 'Graphs')
+                dfx1 = pd.DataFrame(expl_out,columns=['Pred_indices','Predictors','mRMSE','dR2','dR2_s'])
+                dfx1.to_excel(writer, sheet_name = 'Explanations')
+            
+            if plot_explanations:
+                fig = plt.figure()
+                ibest = r['explanations']['icbest'] # get the indices to the best predictors
+                irest = [ii for ii in range(len(self.predictor_names))if ii not in ibest]
+                iX = ibest + irest # ordered predictor indices for X axis
+                ipreds = list(dfx1.Pred_indices)
+                dR2s = dfx1.dR2.to_numpy()
+                dR2s_s = dfx1.dR2_s.to_numpy()
+                shapes = ['o','s','d','v','^']
+
+                for ii,iX0 in enumerate(iX): # iterate over all predictors on X axis
+                    for jj in range(1,len(ipreds[-1])+1): # iterate over all predictor set lengths
+                        ipr = [ii0 for ii0,ip in enumerate(ipreds) if ( len(ip)==jj) & (ip[-1]==iX0)] # pointer to row index
+                        if len(ipr)==1:
+                            Y = dR2s[ipr[0]]
+                            Y_s = dR2s_s[ipr[0]]
+                            plt.plot(ii,Y,shapes[jj-1],c='C'+str(jj-1))
+                            plt.errorbar(ii,Y,yerr=Y_s,c='C'+str(jj-1))
+                labels = list(np.array(self.predictor_names)[iX])
+
+                
+                labx = labels
+                targ2 = target
+
+                plt.xticks(range(len(iX)), labx, rotation='vertical')
+                plt.ylabel(r'$\Delta R^{2}$' + f'({targ2})')
+                plt.plot(np.linspace(0,len(iX)),0*np.linspace(0,len(iX)),linewidth=0.5,c='gray')
+                plt.ylim([-0.2,1])
+                plt.title('Differential explanation of variance')
+                #plt.show()
+                self.figs.append(plt.gcf())
+
+
+                fig = plt.figure() # a simpler figure for the main manuscript
+                ibest = r['explanations']['icbest'] # get the indices to the best predictors
+                irest = [ii for ii in range(len(self.predictor_names))if ii not in ibest]
+                iX = ibest + irest # ordered predictor indices for X axis
+                ipreds = list(dfx1.Pred_indices)
+                dR2s = dfx1.dR2.to_numpy()
+                dR2s_s = dfx1.dR2_s.to_numpy()
+                shapes = ['o','s','d','v','^']
+
+
+                for ii,ibest0 in enumerate(ibest): # iterate over all predictors on X axis
+                    ipr = [ii0 for ii0,ip in enumerate(ipreds) if ( len(ip)==(ii+1)) & (ip[-1]==ibest0)] # pointer to row index
+                    if len(ipr)==1:
+                        Y = dR2s[ipr[0]]
+                        Y_s = dR2s_s[ipr[0]]
+                        plt.bar(ii,Y)
+                        plt.errorbar(ii,Y,yerr=Y_s,c='black')
+                labels = list(np.array(self.predictor_names)[ibest])
+
+
+                labx = labels
+                targ2 = target
+
+                plt.xticks(range(len(ibest)), labx, rotation='vertical')
+                plt.ylabel(r'$\Delta R^{2}$' + f'({targ2})')
+                plt.plot(np.linspace(0,len(ibest)),0*np.linspace(0,len(ibest)),linewidth=0.5,c='gray')
+                plt.ylim([-0.1,1])
+                plt.title('Differential explanation of variance')
+                #plt.show()
+                self.figs.append(plt.gcf())            
+
+
+        best_preds = [list(rr) for rr in best_preds]
+        return best_preds, rs
+
+    def graph_draw_mpl(self,G):
+        nodesize=1200
+        pos = nx.spring_layout(G, seed=3113794652)  # positions for all nodes
+
+        # nodes
+        nlist = [u for (u, d) in G.nodes(data=True)]
+        options = {"edgecolors": "black", "node_size": nodesize, "alpha": 0.9}
+        nx.draw_networkx_nodes(G, pos, nodelist=nlist, node_color="tab:blue", **options)
+        labels = nx.get_node_attributes(G,'label')
+        nx.draw_networkx_labels(G, pos, labels, font_size=16, font_family="sans-serif",font_color="whitesmoke")
+
+        # edges
+        elarge = [(u, v) for (u, v, d) in G.edges(data=True) if d["weight"] > -33]
+        esmall = [(u, v) for (u, v, d) in G.edges(data=True) if d["weight"] <= 0.5]
+        nx.draw_networkx_edges(G, pos, node_size=nodesize, edgelist=elarge, width=3)
+        #nx.draw_networkx_edges(G, pos, node_size=nodesize, edgelist=esmall, width=6, alpha=0.5, edge_color="b", style="dashed")
+
+        # edge weight labels
+        edge_labels = nx.get_edge_attributes(G, "weight")
+        nx.draw_networkx_edge_labels(G, pos, edge_labels,font_size=16)
+
+        plt.tight_layout()
+        plt.axis("off")
+        plt.show()
+    
+    def graph_update(self,dg=None,df=None,target=None):
+        # Create a graph g (or update an existing one)
+        # with the info provided in dataframe df
+
+        if dg==None:
+            dg = nx.DiGraph() # a directed graph instance
+            dg.add_node(target,dR2 = 0) # add target and baseline uncertainty
+
+
+        # analyse information in df
+        df['Nps'] = [len(pp) for pp in df.Predictors] # add number of predictors
+        maxn = np.max(df.Nps) # find maximum number of predictors
+        cols = list(df.columns)
+        # build graph
+        for ii in range(1,maxn):
+            df1 = df[df.Nps==ii]
+            if len(df1)!=0:
+                ibest = np.argmax(df1.dR2)
+                dR2 = df1.iloc[ibest,cols.index('dR2')]
+                predP = df1.iloc[ibest,cols.index('Predictors')] # a string as it comes from Pandas
+                predL = predP[1:-1].split(',')
+                predLR = predL[-1][1:]
+                pred = rf'{predLR}'
+                print(predLR)
+                if dR2 > 0:
+                    dg.add_node(pred,dR2 = 0)
+                    dg.add_edge(pred, target, weight = dR2)
+        
+        return dg
+
+    def get_feature_importance(self, n_jacs=0, p_names=[]):
+        G = self.Jacs[n_jacs]
+        dpar = [] # container for the feature importance
+        dpar_s = [] # and the standard deviation thereof
+        for ii in range(len(p_names)): # iterate over all predictors
+            dpar.append(G['DeltaP_m'][ii]) 
+            dpar_s.append(G['DeltaP_s'][ii])
+        return dpar, dpar_s
+
+    def graph_draw_mplx(self, G, fixed=None, pos=None, figsize = (10,10), gencolors=None):
+        nodesize=8000
+
+        fig = plt.figure(figsize=figsize) # NEW!!!!
+
+        if fixed==None: # No positions provided, need to calculate them here
+
+            fixed = []
+            pos = {}
+            tg = list(nx.topological_generations(G))
+            stg = len(tg) - 1
+            xposs = np.linspace(0,1,len(tg))
+            for ii,gen in enumerate(tg):
+                if ii==stg:
+                    pred_type='T' # this generation refers to the target
+                elif ii==0:
+                    pred_type='P'# this generation refers to processing
+                else:
+                    pred_type='S'# rest of the generations refers to structural features
+                yposs = np.linspace(0,1,len(gen))
+                for jj, n in enumerate(gen):
+                    fixed.append(n)
+                    pos[n] = (xposs[ii],yposs[jj])
+                    if gencolors!=None:
+                        G.nodes[n]['color'] = gencolors[pred_type]
+
+        pos = nx.spring_layout(G, seed=None, weight=None,fixed=fixed,pos=pos)  # positions for all nodes
+
+        # nodes
+        nlist = [u for (u, d) in G.nodes(data=True)]
+        # !!! below making sure there is no div by zero
+        # !!! rule may fail if n.lims[1]==0 !!!!!!!
+
+        #colors = ["tab:blue" if ((abs(n.std/(n.val+n.lims[1]*1e-10)))<1)or(n.std==0) else "tab:red" for n in nlist]
+        #options = {"edgecolors": "black", "node_size": nodesize, "alpha": 0.9}
+
+        R2s = np.array([d['R2'] if 'R2' in d.keys() else 0 for (u,d) in G.nodes(data=True)]) # the explanation of variance by the predictive model
+        linewidths = R2s*6
+
+        print('linewidths',linewidths)
+
+        #colors = ["tab:blue" if True else "tab:red" for n in nlist]
+        nodecolors = [d['color'] for (u, d) in G.nodes(data=True)]
+        options = {"edgecolors": "black", "node_size": nodesize, "alpha": 0.9, 'linewidths':linewidths}   
+        
+        nx.draw_networkx_nodes(G, pos, nodelist=nlist, node_color=nodecolors, **options)
+        labels = nx.get_node_attributes(G,'label')
+        nx.draw_networkx_labels(G, pos, labels, font_size=12, font_family="sans-serif",font_color="whitesmoke",font_weight="bold")
+
+        # edges
+        elarge = [(u, v) for (u, v, d) in G.edges(data=True) if d["weight"] > -33]
+        esmall = [(u, v) for (u, v, d) in G.edges(data=True) if d["weight"] <= 0.5]
+        # edge colors
+        edgelist = []
+        cols = []
+        for node in G.nodes:
+            dpars = []
+            for edge in G.in_edges(node,data=True):
+                dpars.append(edge[2]['feature_importance'])
+            if len(dpars)>0:
+                dpars = np.array(dpars)
+                vmaxa = np.max(np.abs(dpars))
+                vmin = -vmaxa
+                vmax = vmaxa
+                spread = vmax-vmin
+                for edge in G.in_edges(node,data=True):
+                    edgelist.append(edge)
+                    cols.append(mpl.colormaps['coolwarm']((edge[2]['feature_importance']-vmin)/spread))
+                    print('Edge:',edge)
+
+        nx.draw_networkx_edges(G, pos, node_size=nodesize, edgelist=edgelist, width=6,edge_color=cols)
+        #nx.draw_networkx_edges(G, pos, node_size=nodesize, edgelist=esmall, width=6, alpha=0.5, edge_color="b", style="dashed")
+
+        # edge weight labels
+        edge_labels = nx.get_edge_attributes(G, "weight")
+        nx.draw_networkx_edge_labels(G, pos, edge_labels,font_size=12)
+        fig = plt.gcf()
+        fig.set_size_inches(figsize)
+        plt.tight_layout()
+        plt.axis("off")
+        plt.show()
 
